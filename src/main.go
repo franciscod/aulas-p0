@@ -10,12 +10,16 @@ import (
 	"github.com/tdewolff/canvas/renderers"
 
 	"github.com/rustyoz/svg"
+
+	"github.com/asim/quadtree"
 )
 
 var textBeforePaint string
 var scale float64
 
 var fontFamily *canvas.FontFamily
+
+const fontSize = 100.0
 
 func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruction) {
 	done := false
@@ -36,8 +40,9 @@ func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruct
 				}
 			case svg.CircleInstruction:
 				{
-					ctx.MoveTo(ins.M[0], ins.M[1])
-					ctx.Arc(*ins.Radius, *ins.Radius, 0, 0, 360)
+					r := *ins.Radius
+					ctx.MoveTo(ins.M[0]+r, ins.M[1])
+					ctx.Arc(r, r, 0, 0, 360)
 				}
 			case svg.CurveInstruction:
 				{
@@ -63,7 +68,7 @@ func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruct
 				{
 					if textBeforePaint != "" {
 						x, y := ctx.Pos()
-						face := fontFamily.Face(100.0, stroke, canvas.FontRegular, canvas.FontNormal)
+						face := fontFamily.Face(fontSize, stroke, canvas.FontRegular, canvas.FontNormal)
 						text := canvas.NewTextBox(face, textBeforePaint, 0.0, 0.0, canvas.Left, canvas.Top, 0.0, 0.0)
 
 						coordView := canvas.Identity
@@ -103,7 +108,6 @@ func main() {
 	ctx := canvas.NewContext(c)
 	ctx.SetCoordSystem(canvas.CartesianIV)
 
-	ctx.SetStrokeWidth(10.0)
 	fill, err := canvas.ParseSVG("L1000 0 L1000 500 L0 500 Z")
 	ctx.SetFillColor(color.RGBA{0xfd, 0xfd, 0xfd, 0xff})
 	ctx.DrawPath(0, 0, fill)
@@ -122,20 +126,85 @@ func main() {
 	}
 
 	var di chan *svg.DrawingInstruction
+
+	if doc.Groups[2].ID != "divisiones" {
+		panic(doc.Groups[2].ID)
+	}
+	di, _ = doc.Groups[2].ParseDrawingInstructions()
+	ctx.SetStrokeWidth(3.0)
+	render(ctx, canvas.Lightgray, di)
+
+	if doc.Groups[1].ID != "paredes" {
+		panic(doc.Groups[1].ID)
+	}
 	di, _ = doc.Groups[1].ParseDrawingInstructions()
+	ctx.SetStrokeWidth(6.0)
 	render(ctx, canvas.Black, di)
 
+	if doc.Groups[4].ID != "puntitos" {
+		panic(doc.Groups[4].ID)
+	}
+
+	centerPoint := quadtree.NewPoint(0.0, 0.0, nil)
+	halfPoint := quadtree.NewPoint(3000.0, 3000.0, nil)
+	bb := quadtree.NewAABB(centerPoint, halfPoint)
+	qtree := quadtree.New(bb, 0, nil)
+
+	ctx.SetStrokeWidth(4.0)
+	di, _ = doc.Groups[4].ParseDrawingInstructions()
+	render(ctx, canvas.Lightskyblue, di)
+
+	ps := make([]*quadtree.Point, 0)
+	for _, e := range doc.Groups[4].Elements {
+		c, ok := e.(*svg.Circle)
+		if !ok {
+			log.Println("Expected a circle and wasn't")
+			p, wasPath := e.(*svg.Path)
+			if wasPath {
+				log.Println("-- path with ID:", p.ID)
+			}
+		}
+		p := quadtree.NewPoint(c.Cx, c.Cy, c)
+		ok = qtree.Insert(p)
+		if !ok {
+			panic("out of bounds")
+		}
+		ps = append(ps, p)
+	}
+	log.Println(len(ps), "puntitos")
+
+	for _, p := range ps {
+		px, py := p.Coordinates()
+		dist := 60.0
+		knc := quadtree.NewPoint(px, py, nil)
+		knd := quadtree.NewPoint(dist, dist, nil)
+		knbb := quadtree.NewAABB(knc, knd)
+
+		maxPoints := 4
+		for _, point := range qtree.KNearest(knbb, maxPoints, nil) {
+			var c *svg.Circle
+			c = point.Data().(*svg.Circle)
+
+			x, y := knc.Coordinates()
+			ctx.MoveTo(c.Cx, c.Cy)
+			ctx.LineTo(x, y)
+			ctx.Stroke()
+		}
+	}
+
+	if doc.Groups[3].ID != "aulas" {
+		panic(doc.Groups[3].ID)
+	}
 	colorDc := color.RGBA{28, 151, 160, 255}
 	colorAulas := colorDc
-	for _, e := range doc.Groups[2].Elements {
+
+	ctx.SetStrokeWidth(8.0)
+	for _, e := range doc.Groups[3].Elements {
 		var p *svg.Path
 		p = e.(*svg.Path)
 
 		renderAula(ctx, colorAulas, p)
 	}
-
-	di, _ = doc.Groups[3].ParseDrawingInstructions()
-	render(ctx, canvas.Lightgray, di)
 
 	renderers.Write("mapa.png", c)
 }
