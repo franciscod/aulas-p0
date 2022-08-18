@@ -4,33 +4,15 @@ import (
 	"log"
 	"os"
 
+	"image/color"
+
 	"github.com/tdewolff/canvas"
 	"github.com/tdewolff/canvas/renderers"
 
 	"github.com/rustyoz/svg"
 )
 
-func main() {
-	c := canvas.New(1000, 500)
-	ctx := canvas.NewContext(c)
-
-	ctx.SetStrokeWidth(10.0)
-
-	scale := 0.4
-	xmin := 400.0
-	ymin := 1300.0
-
-	ctx.SetView(canvas.Identity.Translate(0.0, 0.0).Scale(scale, -scale).Translate(-xmin, -ymin))
-
-	reader, err := os.Open("../data/mapa.svg")
-	doc, err := svg.ParseSvgFromReader(reader, "test", 1)
-
-	if err != nil {
-		panic(err)
-	}
-
-	di, _ := doc.ParseDrawingInstructions()
-
+func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruction) {
 	done := false
 	for !done {
 		select {
@@ -42,7 +24,6 @@ func main() {
 			if ins == nil {
 				continue
 			}
-			log.Println(ins.M)
 			switch ins.Kind {
 			case svg.MoveInstruction:
 				{
@@ -68,12 +49,15 @@ func main() {
 				{
 					ctx.LineTo(ins.M[0], ins.M[1])
 				}
+			case svg.CloseInstruction:
+				{
+					ctx.Close()
+				}
+
 			case svg.PaintInstruction:
 				{
-					ctx.SetFillColor(canvas.Mediumseagreen)
-					ctx.SetStrokeColor(canvas.Mediumseagreen)
+					ctx.SetStrokeColor(stroke)
 					ctx.Stroke()
-					ctx.Fill()
 				}
 			default:
 				log.Println("wtf")
@@ -81,6 +65,40 @@ func main() {
 			}
 		}
 	}
+
+}
+
+func main() {
+	c := canvas.New(1000, 500)
+	ctx := canvas.NewContext(c)
+
+	ctx.SetStrokeWidth(10.0)
+	fill, err := canvas.ParseSVG("L1000 0 L1000 500 L0 500 Z")
+	ctx.SetFillColor(color.RGBA{0xfd, 0xfd, 0xfd, 0xff})
+	ctx.DrawPath(0, 0, fill)
+
+	scale := 0.4
+	xmin := 400.0
+	ymin := 1330.0
+
+	ctx.SetView(canvas.Identity.Translate(0.0, 0.0).Scale(scale, -scale).Translate(-xmin, -ymin))
+
+	reader, err := os.Open("../data/mapa.svg")
+	doc, err := svg.ParseSvgFromReader(reader, "mapa", 1)
+
+	if err != nil {
+		panic(err)
+	}
+
+	var di chan *svg.DrawingInstruction
+	di, _ = doc.Groups[1].ParseDrawingInstructions()
+	render(ctx, canvas.Black, di)
+
+	di, _ = doc.Groups[2].ParseDrawingInstructions()
+	render(ctx, color.RGBA{28, 151, 160, 255}, di)
+
+	di, _ = doc.Groups[3].ParseDrawingInstructions()
+	render(ctx, canvas.Lightgray, di)
 
 	renderers.Write("mapa.png", c)
 }
