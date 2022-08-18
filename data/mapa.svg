@@ -171,14 +171,12 @@
        inkscape:label="1307"
        d="m 2109.5366,202.1524 h 118.6355 v 128.49401 h -118.6355 z" />
     <path
-       id="1307-1"
+       id="baño1"
        style="opacity:0.89;fill:#92d2d2;fill-opacity:1;stroke:#1c97a0;stroke-width:7.55906;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
-       inkscape:label="baño1"
        d="m 944.88153,974.24176 h 127.97157 v 88.79244 H 944.88153 Z" />
     <path
-       id="1307-1-2"
+       id="baño2"
        style="opacity:0.89;fill:#92d2d2;fill-opacity:1;stroke:#1c97a0;stroke-width:7.55906;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
-       inkscape:label="baño2"
        d="m 1715.1987,974.0965 h 127.9716 v 88.7924 h -127.9716 z" />
   </g>
   <g
