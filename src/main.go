@@ -20,16 +20,16 @@ type Edge struct {
 	u, v int
 }
 
-var textBeforePaint string
 var scale float64
 
 var fontFamily *canvas.FontFamily
 
 const fontSize = 100.0
 
-func render(ctx *canvas.Context, di chan *svg.DrawingInstruction) *quadtree.Point {
+func render(ctx *canvas.Context, di chan *svg.DrawingInstruction, label string) *quadtree.Point {
 	ps := []*quadtree.Point{}
 
+	drawLabel := false
 	done := false
 	for !done {
 		select {
@@ -79,17 +79,8 @@ func render(ctx *canvas.Context, di chan *svg.DrawingInstruction) *quadtree.Poin
 
 			case svg.PaintInstruction:
 				{
-					if textBeforePaint != "" {
-						x, y := ctx.Pos()
-						face := fontFamily.Face(fontSize, ctx.Style.StrokeColor, canvas.FontRegular, canvas.FontNormal)
-						text := canvas.NewTextBox(face, textBeforePaint, 0.0, 0.0, canvas.Left, canvas.Top, 0.0, 0.0)
-
-						coordView := canvas.Identity
-						coordView = coordView.ReflectYAbout(ctx.Height() * 1.45)
-						coord := coordView.Mul(ctx.CoordView()).Dot(canvas.Point{X: x + 10.0, Y: y + 10.0})
-						m := ctx.View().Translate(coord.X, coord.Y)
-						ctx.RenderText(text, m)
-						textBeforePaint = ""
+					if label != "" {
+						drawLabel = true
 					}
 					ctx.Stroke()
 				}
@@ -109,14 +100,25 @@ func render(ctx *canvas.Context, di chan *svg.DrawingInstruction) *quadtree.Poin
 		cy += y
 	}
 
-	return quadtree.NewPoint(cx/l, cy/l, nil)
+	mx, my := cx/l, cy/l
+	if drawLabel {
+		face := fontFamily.Face(fontSize, ctx.Style.StrokeColor, canvas.FontRegular, canvas.FontNormal)
+		text := canvas.NewTextBox(face, label, 0.0, 0.0, canvas.Center, canvas.Center, 0.0, 0.0)
+
+		coordView := canvas.Identity
+		coordView = coordView.ReflectYAbout(ctx.Height() * 1.45)
+		coord := coordView.Mul(ctx.CoordView()).Dot(canvas.Point{X: mx + 10.0, Y: my + 25.0})
+		m := ctx.View().Translate(coord.X, coord.Y)
+		ctx.RenderText(text, m)
+	}
+
+	return quadtree.NewPoint(mx, my, nil)
 }
 func renderAula(ctx *canvas.Context, p *svg.Path) *quadtree.Point {
 
 	di, _ := p.ParseDrawingInstructions()
 
-	textBeforePaint = p.ID
-	return render(ctx, di)
+	return render(ctx, di, p.ID)
 }
 
 var dist [1000][1000]float64
@@ -150,8 +152,8 @@ func mapita(src, dst string) {
 	ctx.DrawPath(0, 0, fill)
 
 	scale := 0.4
-	xmin := 400.0
-	ymin := 100.0
+	xmin := 330.0
+	ymin := 90.0
 
 	ctx.SetView(canvas.Identity.Translate(0.0, 0.0).Scale(scale, scale).Translate(-xmin, -ymin))
 
@@ -170,7 +172,7 @@ func mapita(src, dst string) {
 	di, _ = doc.Groups[2].ParseDrawingInstructions()
 	ctx.SetStrokeWidth(3.0) // divisiones finitas
 	ctx.SetStrokeColor(canvas.Lightgray)
-	render(ctx, di)
+	render(ctx, di, "")
 
 	if doc.Groups[1].ID != "paredes" {
 		panic(doc.Groups[1].ID)
@@ -178,7 +180,7 @@ func mapita(src, dst string) {
 	di, _ = doc.Groups[1].ParseDrawingInstructions()
 	ctx.SetStrokeWidth(6.0) // paredes gruesas
 	ctx.SetStrokeColor(canvas.Black)
-	render(ctx, di)
+	render(ctx, di, "")
 
 	if doc.Groups[4].ID != "puntitos" {
 		panic(doc.Groups[4].ID)
@@ -211,7 +213,7 @@ func mapita(src, dst string) {
 		ps = append(ps, p)
 		i++
 	}
-	// log.Println(len(ps), "puntitos")
+	log.Println(len(ps), "puntitos")
 
 	if doc.Groups[3].ID != "aulas" {
 		panic(doc.Groups[3].ID)
@@ -326,7 +328,7 @@ func mapita(src, dst string) {
 	}
 
 	di, _ = doc.Groups[4].ParseDrawingInstructions()
-	render(ctx, di)
+	render(ctx, di, "")
 
 	ctx.SetStrokeWidth(8.0) // aulas gruesas
 	ctx.SetStrokeColor(color.RGBA{28, 151, 160, 255})
@@ -341,5 +343,5 @@ func mapita(src, dst string) {
 }
 
 func main() {
-	mapita("pab1", "kiosko")
+	mapita("pab1", "pab2")
 }
