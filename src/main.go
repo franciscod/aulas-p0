@@ -23,6 +23,11 @@ import (
 	"github.com/tdewolff/canvas/renderers/opengl"
 )
 
+import _ "embed"
+
+//go:embed embed/comic.ttf
+var font []byte
+
 type Edge struct {
 	u, v int
 }
@@ -438,8 +443,8 @@ func mainOpenGL() {
 }
 
 func main() {
-	fontFamily = canvas.NewFontFamily("noto")
-	if err := fontFamily.LoadLocalFont("NotoSans-Regular", canvas.FontRegular); err != nil {
+	fontFamily = canvas.NewFontFamily("comic")
+	if err := fontFamily.LoadFont(font, 0, canvas.FontRegular); err != nil {
 		panic(err)
 	}
 
