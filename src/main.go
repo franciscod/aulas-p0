@@ -306,6 +306,8 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 				var j int
 				j = point.Data().(int)
 
+				// TODO: no construir ejes entre puntos vecinos de aulas distintas
+
 				es = append(es, &Edge{i, j})
 				es = append(es, &Edge{j, i})
 			}
