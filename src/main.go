@@ -26,6 +26,8 @@ var fontFamily *canvas.FontFamily
 
 const fontSize = 100.0
 
+const MAX_PUNTITOS = 1000
+
 func render(ctx *canvas.Context, di chan *svg.DrawingInstruction, label string) *quadtree.Point {
 	ps := []*quadtree.Point{}
 
@@ -121,8 +123,8 @@ func renderAula(ctx *canvas.Context, p *svg.Path) *quadtree.Point {
 	return render(ctx, di, p.ID)
 }
 
-var dist [1000][1000]float64
-var next [1000][1000]int
+var dist [MAX_PUNTITOS][MAX_PUNTITOS]float64
+var next [MAX_PUNTITOS][MAX_PUNTITOS]int
 
 func path(u, v int) []int {
 	if next[u][v] == -1 {
@@ -137,15 +139,7 @@ func path(u, v int) []int {
 	return path
 }
 
-func mapita(src, dst string) {
-	fontFamily = canvas.NewFontFamily("noto")
-	if err := fontFamily.LoadLocalFont("NotoSans-Regular", canvas.FontRegular); err != nil {
-		panic(err)
-	}
-
-	c := canvas.New(1000, 500)
-	ctx := canvas.NewContext(c)
-	ctx.SetCoordSystem(canvas.CartesianIV)
+func renderMapa(ctx *canvas.Context, src string, dst string) {
 
 	fill, err := canvas.ParseSVG("L1000 0 L1000 500 L0 500 Z")
 	ctx.SetFillColor(color.RGBA{0xfd, 0xfd, 0xfd, 0xff})
@@ -213,7 +207,7 @@ func mapita(src, dst string) {
 		ps = append(ps, p)
 		i++
 	}
-	log.Println(len(ps), "puntitos")
+	// log.Println(len(ps), "puntitos")
 
 	if doc.Groups[3].ID != "aulas" {
 		panic(doc.Groups[3].ID)
@@ -237,7 +231,7 @@ func mapita(src, dst string) {
 		i++
 	}
 
-	if len(ps) > 1000 {
+	if len(ps) > MAX_PUNTITOS {
 		panic("muchos puntitos")
 	}
 
@@ -339,9 +333,23 @@ func mapita(src, dst string) {
 		renderAula(ctx, p)
 	}
 
-	renderers.Write("mapa.png", c)
+}
+
+func genPNG(path string, src string, dst string) {
+	fontFamily = canvas.NewFontFamily("noto")
+	if err := fontFamily.LoadLocalFont("NotoSans-Regular", canvas.FontRegular); err != nil {
+		panic(err)
+	}
+
+	c := canvas.New(1000, 500)
+	ctx := canvas.NewContext(c)
+	ctx.SetCoordSystem(canvas.CartesianIV)
+
+	renderMapa(ctx, src, dst)
+
+	renderers.Write(path, c)
 }
 
 func main() {
-	mapita("pab1", "pab2")
+	genPNG("mapa.png", "pab1", "pab2")
 }
