@@ -2,9 +2,9 @@ package main
 
 import (
 	"log"
-	"os"
-
 	"math"
+	"os"
+	"strconv"
 
 	"image/color"
 
@@ -239,8 +239,6 @@ func mapita(src, dst string) {
 		panic("muchos puntitos")
 	}
 
-	ctx.SetStrokeWidth(4.0) // puntitos intermedios
-	ctx.SetStrokeColor(color.RGBA{0, 0, 0, 10})
 	es := make([]*Edge, 0)
 
 	for i, p := range ps {
@@ -254,19 +252,10 @@ func mapita(src, dst string) {
 			var j int
 			j = point.Data().(int)
 
-			x, y := knc.Coordinates()
-			px, py := ps[j].Coordinates()
-			ctx.MoveTo(px, py)
-			ctx.LineTo(x, y)
-			ctx.Stroke()
-
 			es = append(es, &Edge{i, j})
 			es = append(es, &Edge{j, i})
 		}
 	}
-
-	di, _ = doc.Groups[4].ParseDrawingInstructions()
-	render(ctx, di)
 
 	for u := range ps {
 		for v := range ps {
@@ -314,6 +303,30 @@ func mapita(src, dst string) {
 		ctx.LineTo(x, y)
 	}
 	ctx.Stroke()
+
+	drawn := map[string]bool{}
+	ctx.SetStrokeWidth(4.0) // puntitos intermedios
+	ctx.SetStrokeColor(color.RGBA{0, 0, 0, 10})
+	for _, e := range es {
+		if e.u >= e.v {
+			continue
+		}
+		arc := "" + strconv.Itoa(e.u) + ":" + strconv.Itoa(e.v)
+		if drawn[arc] {
+			continue
+		}
+
+		x, y := ps[e.u].Coordinates()
+		px, py := ps[e.v].Coordinates()
+		ctx.MoveTo(px, py)
+		ctx.LineTo(x, y)
+		ctx.Stroke()
+
+		drawn[arc] = true
+	}
+
+	di, _ = doc.Groups[4].ParseDrawingInstructions()
+	render(ctx, di)
 
 	ctx.SetStrokeWidth(8.0) // aulas gruesas
 	ctx.SetStrokeColor(color.RGBA{28, 151, 160, 255})
