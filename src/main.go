@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"os"
+	"runtime"
 	"strconv"
 
 	"image/color"
@@ -14,6 +17,10 @@ import (
 	"github.com/rustyoz/svg"
 
 	"github.com/asim/quadtree"
+
+	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/tdewolff/canvas/renderers/opengl"
 )
 
 type Edge struct {
@@ -27,6 +34,8 @@ var fontFamily *canvas.FontFamily
 const fontSize = 100.0
 
 const MAX_PUNTITOS = 1000
+
+var aulas []string
 
 func render(ctx *canvas.Context, di chan *svg.DrawingInstruction, label string) *quadtree.Point {
 	ps := []*quadtree.Point{}
@@ -141,10 +150,6 @@ func path(u, v int) []int {
 
 func renderMapa(ctx *canvas.Context, src string, dst string) {
 
-	fill, err := canvas.ParseSVG("L1000 0 L1000 500 L0 500 Z")
-	ctx.SetFillColor(color.RGBA{0xfd, 0xfd, 0xfd, 0xff})
-	ctx.DrawPath(0, 0, fill)
-
 	scale := 0.4
 	xmin := 330.0
 	ymin := 90.0
@@ -228,6 +233,7 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 		}
 
 		ps = append(ps, c)
+		aulas = append(aulas, p.ID)
 		i++
 	}
 
@@ -325,10 +331,15 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 	render(ctx, di, "")
 
 	ctx.SetStrokeWidth(8.0) // aulas gruesas
-	ctx.SetStrokeColor(color.RGBA{28, 151, 160, 255})
 	for _, e := range doc.Groups[3].Elements {
 		var p *svg.Path
 		p = e.(*svg.Path)
+
+		if p.ID == src || p.ID == dst {
+			ctx.SetStrokeColor(color.RGBA{28, 151, 160, 255})
+		} else {
+			ctx.SetStrokeColor(color.RGBA{28, 28, 28, 128})
+		}
 
 		renderAula(ctx, p)
 	}
@@ -336,20 +347,103 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 }
 
 func genPNG(path string, src string, dst string) {
-	fontFamily = canvas.NewFontFamily("noto")
-	if err := fontFamily.LoadLocalFont("NotoSans-Regular", canvas.FontRegular); err != nil {
-		panic(err)
-	}
-
 	c := canvas.New(1000, 500)
 	ctx := canvas.NewContext(c)
 	ctx.SetCoordSystem(canvas.CartesianIV)
+
+	fill, _ := canvas.ParseSVG("L1000 0 L1000 500 L0 500 Z")
+	ctx.SetFillColor(color.RGBA{0xfd, 0xfd, 0xfd, 0xff})
+	ctx.DrawPath(0, 0, fill)
 
 	renderMapa(ctx, src, dst)
 
 	renderers.Write(path, c)
 }
 
+func onKey(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+	if action == glfw.Press && (key == glfw.KeyEscape || key == glfw.KeyQ) {
+		w.SetShouldClose(true)
+	}
+}
+
+func regenOpenGL(src string, dst string) *opengl.OpenGL {
+	ogl := opengl.New(1000.0, 500.0, canvas.DPMM(1.0))
+	ctx := canvas.NewContext(ogl)
+	ctx.SetFillColor(canvas.White)
+	ctx.DrawPath(0, 0, canvas.Rectangle(ctx.Width(), ctx.Height()))
+	ctx.SetCoordSystem(canvas.CartesianIV)
+	// Compile canvas for OpenGl
+	renderMapa(ctx, src, dst)
+	ogl.Compile()
+
+	return ogl
+}
+
+func mainOpenGL() {
+	fmt.Println("mainOpenGL")
+
+	runtime.LockOSThread()
+
+	// Set up window
+	if err := glfw.Init(); err != nil {
+		panic(err)
+	}
+	defer glfw.Terminate()
+
+	glfw.WindowHint(glfw.Resizable, glfw.False)
+	glfw.WindowHint(glfw.ContextVersionMajor, 3)
+	glfw.WindowHint(glfw.ContextVersionMinor, 2)
+	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
+	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
+
+	width, height := 1000, 500
+	window, err := glfw.CreateWindow(width, height, "mapita", nil, nil)
+	if err != nil {
+		panic(err)
+	}
+	window.MakeContextCurrent()
+	window.SetKeyCallback(onKey)
+
+	if err := gl.Init(); err != nil {
+		panic(err)
+	}
+	version := gl.GoStr(gl.GetString(gl.VERSION))
+	fmt.Println("OpenGL version", version)
+
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	regenOpenGL("pab1", "kiosko") // gen aulas
+
+	gl.ClearColor(1, 1, 1, 1)
+	for !window.ShouldClose() {
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+
+		src := aulas[rand.Intn(len(aulas))]
+		dst := aulas[rand.Intn(len(aulas))]
+		for src == dst {
+			dst = aulas[rand.Intn(len(aulas))]
+		}
+		log.Println()
+		log.Println("Rendering... ", src, dst)
+		// Draw compiled canvas to OpenGL
+		ogl := regenOpenGL(src, dst)
+		ogl.Draw()
+		log.Println("...done!     ", src, dst)
+
+		glfw.PollEvents()
+		window.SwapBuffers()
+	}
+
+}
+
 func main() {
-	genPNG("mapa.png", "pab1", "pab2")
+	fontFamily = canvas.NewFontFamily("noto")
+	if err := fontFamily.LoadLocalFont("NotoSans-Regular", canvas.FontRegular); err != nil {
+		panic(err)
+	}
+
+	// genPNG("mapa.png", "pab1", "pab2")
+
+	mainOpenGL()
 }
