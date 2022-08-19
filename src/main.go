@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 
+	"math"
+
 	"image/color"
 
 	"github.com/tdewolff/canvas"
@@ -14,6 +16,10 @@ import (
 	"github.com/asim/quadtree"
 )
 
+type Edge struct {
+	u, v int
+}
+
 var textBeforePaint string
 var scale float64
 
@@ -21,7 +27,9 @@ var fontFamily *canvas.FontFamily
 
 const fontSize = 100.0
 
-func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruction) {
+func render(ctx *canvas.Context, di chan *svg.DrawingInstruction) *quadtree.Point {
+	ps := []*quadtree.Point{}
+
 	done := false
 	for !done {
 		select {
@@ -37,6 +45,7 @@ func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruct
 			case svg.MoveInstruction:
 				{
 					ctx.MoveTo(ins.M[0], ins.M[1])
+					ps = append(ps, quadtree.NewPoint(ins.M[0], ins.M[1], nil))
 				}
 			case svg.CircleInstruction:
 				{
@@ -54,31 +63,34 @@ func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruct
 						ins.CurvePoints.T[0],
 						ins.CurvePoints.T[1],
 					)
+					ps = append(ps, quadtree.NewPoint(ins.CurvePoints.T[0], ins.CurvePoints.T[1], nil))
 				}
 			case svg.LineInstruction:
 				{
 					ctx.LineTo(ins.M[0], ins.M[1])
+					ps = append(ps, quadtree.NewPoint(ins.M[0], ins.M[1], nil))
 				}
 			case svg.CloseInstruction:
 				{
 					ctx.Close()
+					x, y := ctx.Pos()
+					ps = append(ps, quadtree.NewPoint(x, y, nil))
 				}
 
 			case svg.PaintInstruction:
 				{
 					if textBeforePaint != "" {
 						x, y := ctx.Pos()
-						face := fontFamily.Face(fontSize, stroke, canvas.FontRegular, canvas.FontNormal)
+						face := fontFamily.Face(fontSize, ctx.Style.StrokeColor, canvas.FontRegular, canvas.FontNormal)
 						text := canvas.NewTextBox(face, textBeforePaint, 0.0, 0.0, canvas.Left, canvas.Top, 0.0, 0.0)
 
 						coordView := canvas.Identity
 						coordView = coordView.ReflectYAbout(ctx.Height() * 1.45)
-						coord := coordView.Mul(ctx.CoordView()).Dot(canvas.Point{x + 10.0, y + 10.0})
+						coord := coordView.Mul(ctx.CoordView()).Dot(canvas.Point{X: x + 10.0, Y: y + 10.0})
 						m := ctx.View().Translate(coord.X, coord.Y)
 						ctx.RenderText(text, m)
 						textBeforePaint = ""
 					}
-					ctx.SetStrokeColor(stroke)
 					ctx.Stroke()
 				}
 			default:
@@ -88,17 +100,42 @@ func render(ctx *canvas.Context, stroke color.RGBA, di chan *svg.DrawingInstruct
 		}
 	}
 
+	cx := 0.0
+	cy := 0.0
+	l := float64(len(ps))
+	for _, p := range ps {
+		x, y := p.Coordinates()
+		cx += x
+		cy += y
+	}
+
+	return quadtree.NewPoint(cx/l, cy/l, nil)
 }
-func renderAula(ctx *canvas.Context, color color.RGBA, p *svg.Path) {
+func renderAula(ctx *canvas.Context, p *svg.Path) *quadtree.Point {
 
 	di, _ := p.ParseDrawingInstructions()
 
 	textBeforePaint = p.ID
-	render(ctx, color, di)
+	return render(ctx, di)
 }
 
-func main() {
+var dist [1000][1000]float64
+var next [1000][1000]int
 
+func path(u, v int) []int {
+	if next[u][v] == -1 {
+		return []int{}
+	}
+	path := []int{u}
+
+	for u != v {
+		u = next[u][v]
+		path = append(path, u)
+	}
+	return path
+}
+
+func mapita(src, dst string) {
 	fontFamily = canvas.NewFontFamily("noto")
 	if err := fontFamily.LoadLocalFont("NotoSans-Regular", canvas.FontRegular); err != nil {
 		panic(err)
@@ -131,15 +168,17 @@ func main() {
 		panic(doc.Groups[2].ID)
 	}
 	di, _ = doc.Groups[2].ParseDrawingInstructions()
-	ctx.SetStrokeWidth(3.0)
-	render(ctx, canvas.Lightgray, di)
+	ctx.SetStrokeWidth(3.0) // divisiones finitas
+	ctx.SetStrokeColor(canvas.Lightgray)
+	render(ctx, di)
 
 	if doc.Groups[1].ID != "paredes" {
 		panic(doc.Groups[1].ID)
 	}
 	di, _ = doc.Groups[1].ParseDrawingInstructions()
-	ctx.SetStrokeWidth(6.0)
-	render(ctx, canvas.Black, di)
+	ctx.SetStrokeWidth(6.0) // paredes gruesas
+	ctx.SetStrokeColor(canvas.Black)
+	render(ctx, di)
 
 	if doc.Groups[4].ID != "puntitos" {
 		panic(doc.Groups[4].ID)
@@ -150,11 +189,11 @@ func main() {
 	bb := quadtree.NewAABB(centerPoint, halfPoint)
 	qtree := quadtree.New(bb, 0, nil)
 
-	ctx.SetStrokeWidth(4.0)
-	di, _ = doc.Groups[4].ParseDrawingInstructions()
-	render(ctx, canvas.Lightskyblue, di)
-
+	srcI := -1
+	dstI := -1
+	i := 0
 	ps := make([]*quadtree.Point, 0)
+
 	for _, e := range doc.Groups[4].Elements {
 		c, ok := e.(*svg.Circle)
 		if !ok {
@@ -164,47 +203,130 @@ func main() {
 				log.Println("-- path with ID:", p.ID)
 			}
 		}
-		p := quadtree.NewPoint(c.Cx, c.Cy, c)
+		p := quadtree.NewPoint(c.Cx, c.Cy, i)
 		ok = qtree.Insert(p)
 		if !ok {
 			panic("out of bounds")
 		}
 		ps = append(ps, p)
+		i++
 	}
-	log.Println(len(ps), "puntitos")
+	// log.Println(len(ps), "puntitos")
 
-	for _, p := range ps {
-		px, py := p.Coordinates()
+	if doc.Groups[3].ID != "aulas" {
+		panic(doc.Groups[3].ID)
+	}
+
+	ctx.SetStrokeColor(canvas.Transparent)
+	for _, e := range doc.Groups[3].Elements {
+		var p *svg.Path
+		p = e.(*svg.Path)
+
+		c := renderAula(ctx, p)
+
+		if p.ID == src {
+			srcI = i
+		}
+		if p.ID == dst {
+			dstI = i
+		}
+
+		ps = append(ps, c)
+		i++
+	}
+
+	if len(ps) > 1000 {
+		panic("muchos puntitos")
+	}
+
+	ctx.SetStrokeWidth(4.0) // puntitos intermedios
+	ctx.SetStrokeColor(color.RGBA{0, 0, 0, 10})
+	es := make([]*Edge, 0)
+
+	for i, p := range ps {
 		dist := 60.0
-		knc := quadtree.NewPoint(px, py, nil)
+		knc := p
 		knd := quadtree.NewPoint(dist, dist, nil)
 		knbb := quadtree.NewAABB(knc, knd)
 
 		maxPoints := 4
 		for _, point := range qtree.KNearest(knbb, maxPoints, nil) {
-			var c *svg.Circle
-			c = point.Data().(*svg.Circle)
+			var j int
+			j = point.Data().(int)
 
 			x, y := knc.Coordinates()
-			ctx.MoveTo(c.Cx, c.Cy)
+			px, py := ps[j].Coordinates()
+			ctx.MoveTo(px, py)
 			ctx.LineTo(x, y)
 			ctx.Stroke()
+
+			es = append(es, &Edge{i, j})
+			es = append(es, &Edge{j, i})
 		}
 	}
 
-	if doc.Groups[3].ID != "aulas" {
-		panic(doc.Groups[3].ID)
-	}
-	colorDc := color.RGBA{28, 151, 160, 255}
-	colorAulas := colorDc
+	di, _ = doc.Groups[4].ParseDrawingInstructions()
+	render(ctx, di)
 
-	ctx.SetStrokeWidth(8.0)
+	for u := range ps {
+		for v := range ps {
+			dist[u][v] = 100000000000
+			next[u][v] = -1
+		}
+	}
+
+	for _, e := range es {
+		ux, uy := ps[e.u].Coordinates()
+		vx, vy := ps[e.v].Coordinates()
+		dist[e.u][e.v] = math.Sqrt((ux-vx)*(ux-vx) + (uy-vy)*(uy-vy)) // The weight of the edge (u, v)
+		next[e.u][e.v] = e.v
+	}
+
+	for i := range ps {
+		dist[i][i] = 0
+		next[i][i] = i
+	}
+
+	for k := range ps {
+		for i := range ps {
+			for j := range ps {
+				if dist[i][j] > dist[i][k]+dist[k][j] {
+					dist[i][j] = dist[i][k] + dist[k][j]
+					next[i][j] = next[i][k]
+				}
+			}
+		}
+	}
+
+	// log.Println(src, srcI)
+	// log.Println(dst, dstI)
+	camino := path(srcI, dstI)
+
+	px, py := ps[srcI].Coordinates()
+
+	ctx.SetStrokeJoiner(canvas.RoundJoin)
+	ctx.SetStrokeCapper(canvas.RoundCap)
+	ctx.SetStrokeColor(canvas.Gold)
+	ctx.SetStrokeWidth(20.0) // camino bien visible
+	ctx.MoveTo(px, py)
+	for _, u := range camino {
+		x, y := ps[u].Coordinates()
+		ctx.LineTo(x, y)
+	}
+	ctx.Stroke()
+
+	ctx.SetStrokeWidth(8.0) // aulas gruesas
+	ctx.SetStrokeColor(color.RGBA{28, 151, 160, 255})
 	for _, e := range doc.Groups[3].Elements {
 		var p *svg.Path
 		p = e.(*svg.Path)
 
-		renderAula(ctx, colorAulas, p)
+		renderAula(ctx, p)
 	}
 
 	renderers.Write("mapa.png", c)
+}
+
+func main() {
+	mapita("pab1", "kiosko")
 }
