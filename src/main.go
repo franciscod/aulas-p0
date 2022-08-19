@@ -247,7 +247,7 @@ func mapita(src, dst string) {
 		knd := quadtree.NewPoint(dist, dist, nil)
 		knbb := quadtree.NewAABB(knc, knd)
 
-		maxPoints := 4
+		maxPoints := 10
 		for _, point := range qtree.KNearest(knbb, maxPoints, nil) {
 			var j int
 			j = point.Data().(int)
