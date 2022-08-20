@@ -32,7 +32,7 @@ const (
 	Puntitos   = 4
 )
 
-//go:embed embed/comic.ttf
+//go:embed comic.ttf
 var font []byte
 
 type Edge struct {
@@ -219,7 +219,7 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 	if doc == nil {
 		docTk = tk
 		tLog("parsing svg")
-		reader, err := os.Open("../data/mapa.svg")
+		reader, err := os.Open("mapa.svg")
 		if err != nil {
 			panic(err)
 		}
