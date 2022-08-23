@@ -4,6 +4,7 @@ go 1.16
 
 require (
 	github.com/asim/quadtree v0.1.0
+	github.com/franciscod/earcut-go v0.0.0-20220823025808-f72f1f742e53 // indirect
 	github.com/go-gl/gl v0.0.0-20211210172815-726fda9656d6
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20220622232848-a6c407ee30a0
 	github.com/rustyoz/Mtransform v0.0.0-20190224104252-60c8c35a3681 // indirect

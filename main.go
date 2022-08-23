@@ -21,6 +21,8 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/tdewolff/canvas/renderers/opengl"
 
+	"github.com/franciscod/earcut-go"
+
 	_ "embed"
 )
 
@@ -29,7 +31,7 @@ const (
 	Paredes    = 1
 	Divisiones = 2
 	Aulas      = 3
-	Puntitos   = 4
+	Navpath    = 4
 )
 
 //go:embed comic.ttf
@@ -87,8 +89,75 @@ func tLog(s string) {
 		ms := n.Sub(t).Microseconds()
 		fmt.Printf("%-25s %7d             \n", s, ms)
 	}
+
 	t = n
 	tk++
+}
+
+func getRings(ctx *canvas.Context, di chan *svg.DrawingInstruction) [][]earcut.Vertex {
+
+	var rings [][]earcut.Vertex
+	var ring []earcut.Vertex
+	for {
+		select {
+		case ins, ok := <-di:
+			if !ok {
+				goto ret
+			}
+			if ins == nil {
+				continue
+			}
+			switch ins.Kind {
+			case svg.MoveInstruction:
+				p := earcut.Vertex{P: [2]float64{ins.M[0], ins.M[1]}}
+				ring = []earcut.Vertex{}
+				ring = append(ring, p)
+
+				ctx.MoveTo(p.P[0], p.P[1])
+			case svg.CircleInstruction:
+				panic("triangulatePath: unexpected circle")
+			case svg.CurveInstruction:
+				panic("triangulatePath: unexpected curve")
+			case svg.LineInstruction:
+				p := earcut.Vertex{P: [2]float64{ins.M[0], ins.M[1]}}
+				ring = append(ring, p)
+
+				ctx.LineTo(p.P[0], p.P[1])
+			case svg.CloseInstruction:
+				rings = append(rings, ring)
+				ring = nil
+				ctx.Close()
+			case svg.PaintInstruction:
+				// ctx.Stroke()
+			default:
+				log.Println("wtf")
+				panic(ins.Kind)
+			}
+		}
+	}
+
+ret:
+	return rings
+}
+
+func renderTris(ctx *canvas.Context, tris []earcut.Triangle) {
+	for _, tri := range tris {
+		a := tri.Vertices[0]
+		b := tri.Vertices[1]
+		c := tri.Vertices[2]
+		ctx.MoveTo(a.P[0], a.P[1])
+		ctx.LineTo(b.P[0], b.P[1])
+		ctx.LineTo(c.P[0], c.P[1])
+		ctx.Close()
+
+		col := color.RGBA{
+			uint8((8 + rand.Intn(8)) * 16),
+			uint8((8 + rand.Intn(8)) * 16),
+			uint8((8 + rand.Intn(8)) * 16),
+			255}
+		ctx.SetFillColor(col)
+		ctx.Fill()
+	}
 }
 
 func render(ctx *canvas.Context, di chan *svg.DrawingInstruction, label string) *quadtree.Point {
@@ -229,6 +298,10 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 			panic(err)
 		}
 
+		if doc.Groups[Navpath].ID != "nav" {
+			panic(doc.Groups[Navpath].ID)
+		}
+
 		centerPoint := quadtree.NewPoint(0.0, 0.0, nil)
 		halfPoint := quadtree.NewPoint(3000.0, 3000.0, nil)
 		bb := quadtree.NewAABB(centerPoint, halfPoint)
@@ -240,25 +313,27 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 		esAula = make(map[int]bool)
 		aulaID = make(map[int]string)
 
-		tLog("puntitos quadtree")
-		for _, e := range doc.Groups[Puntitos].Elements {
-			c, ok := e.(*svg.Circle)
-			if !ok {
-				log.Println("Expected a circle and wasn't")
-				p, wasPath := e.(*svg.Path)
-				if wasPath {
-					log.Println("-- path with ID:", p.ID)
+		/*
+			tLog("puntitos quadtree")
+			for _, e := range doc.Groups[Puntitos].Elements {
+				c, ok := e.(*svg.Circle)
+				if !ok {
+					log.Println("Expected a circle and wasn't")
+					p, wasPath := e.(*svg.Path)
+					if wasPath {
+						log.Println("-- path with ID:", p.ID)
+					}
 				}
+				p := quadtree.NewPoint(c.Cx, c.Cy, i)
+				ok = qtree.Insert(p)
+				if !ok {
+					panic("out of bounds")
+				}
+				ps = append(ps, p)
+				i++
 			}
-			p := quadtree.NewPoint(c.Cx, c.Cy, i)
-			ok = qtree.Insert(p)
-			if !ok {
-				panic("out of bounds")
-			}
-			ps = append(ps, p)
-			i++
-		}
-		tLog("puntitos quadtree done")
+			tLog("puntitos quadtree done")
+		*/
 		// log.Println(len(ps), "puntitos")
 
 		if doc.Groups[Aulas].ID != "aulas" {
@@ -296,14 +371,17 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 
 		tLog("quadtree knearest")
 		for i, p := range ps {
-			dist := 60.0
+			dist := 600.0
 			knc := p
 			knd := quadtree.NewPoint(dist, dist, nil)
 			knbb := quadtree.NewAABB(knc, knd)
 
-			maxPoints := 10
+			maxPoints := 20
+			points := []*quadtree.Point{}
+
 			for _, point := range qtree.KNearest(knbb, maxPoints, nil) {
 				var j int
+				points = append(points, point)
 				j = point.Data().(int)
 
 				// TODO: no construir ejes entre puntos vecinos de aulas distintas
@@ -361,6 +439,17 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 
 	var di chan *svg.DrawingInstruction
 
+	tLog("navpath render")
+	ctx.SetStrokeWidth(2.0)
+	rand.Seed((time.Now().Unix()) % 20)
+
+	di, _ = doc.Groups[Navpath].ParseDrawingInstructions()
+	rings := getRings(ctx, di)
+	tris := earcut.Triangulate(earcut.Polygon{Rings: rings})
+	renderTris(ctx, tris)
+
+	tLog("navpath render done")
+
 	if doc.Groups[Divisiones].ID != "divisiones" {
 		panic(doc.Groups[Divisiones].ID)
 	}
@@ -383,28 +472,24 @@ func renderMapa(ctx *canvas.Context, src string, dst string) {
 	render(ctx, di, "")
 	tLog("paredes done")
 
-	if doc.Groups[Puntitos].ID != "puntitos" {
-		panic(doc.Groups[Puntitos].ID)
-	}
+	// tLog("path find ...")
+	// camino := path(aulaIndex[src], aulaIndex[dst])
+	// tLog("path find done")
 
-	tLog("path find ...")
-	camino := path(aulaIndex[src], aulaIndex[dst])
-	tLog("path find done")
+	// px, py := ps[aulaIndex[src]].Coordinates()
 
-	px, py := ps[aulaIndex[src]].Coordinates()
-
-	ctx.SetStrokeJoiner(canvas.RoundJoin)
-	ctx.SetStrokeCapper(canvas.RoundCap)
-	ctx.SetStrokeColor(canvas.Gold)
-	ctx.SetStrokeWidth(20.0) // camino bien visible
-	tLog("path stroke ...")
-	ctx.MoveTo(px, py)
-	for _, u := range camino {
-		x, y := ps[u].Coordinates()
-		ctx.LineTo(x, y)
-	}
-	ctx.Stroke()
-	tLog("path stroke done")
+	// ctx.SetStrokeJoiner(canvas.RoundJoin)
+	// ctx.SetStrokeCapper(canvas.RoundCap)
+	// ctx.SetStrokeColor(canvas.Gold)
+	// ctx.SetStrokeWidth(20.0) // camino bien visible
+	// tLog("path stroke ...")
+	// ctx.MoveTo(px, py)
+	// for _, u := range camino {
+	// 	x, y := ps[u].Coordinates()
+	// 	ctx.LineTo(x, y)
+	// }
+	// ctx.Stroke()
+	// tLog("path stroke done")
 
 	// tLog("drawing edges")
 	// drawn := map[string]bool{}
@@ -599,12 +684,12 @@ func mainOpenGL() {
 					dst = aulaIds[rand.Intn(len(aulaIds))]
 				}
 			} else {
-				if gSrc != "" {
-					src = gSrc
-				}
-				if gDst != "" {
-					dst = gDst
-				}
+				// if gSrc != "" {
+				// 	src = gSrc
+				// }
+				// if gDst != "" {
+				// 	dst = gDst
+				// }
 			}
 		}
 		// Draw compiled canvas to OpenGL
@@ -631,6 +716,6 @@ func main() {
 	}
 
 	tLog("")
-	// genPNG("mapa.png", "pab1", "pab2")
-	mainOpenGL()
+	genPNG("mapa.png", "pab1", "pab2")
+	// mainOpenGL()
 }
